@@ -1,5 +1,7 @@
 #include "types.h"
 
+void            printf(char*, ...);
+
 void*
 memset(void *dst, int c, uint n)
 {
@@ -32,7 +34,6 @@ memmove(void *dst, const void *src, uint n)
 {
   const char *s;
   char *d;
-
   s = src;
   d = dst;
   if(s < d && s + n > d){
@@ -41,8 +42,12 @@ memmove(void *dst, const void *src, uint n)
     while(n-- > 0)
       *--d = *--s;
   } else
-    while(n-- > 0)
+    while(n-- > 0){
+      // printf("*src:%p!!!\n", *s);
+      // printf("*dst:%p!!!\n", *d);
       *d++ = *s++;
+      // printf("dst:%p, src:%p!!!\n", d, s);
+    }
 
   return dst;
 }

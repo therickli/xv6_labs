@@ -35,7 +35,7 @@ exec(char *path, char **argv)
   if(elf.magic != ELF_MAGIC)
     goto bad;
 
-  if((pagetable = proc_pagetable(p)) == 0)
+  if((pagetable = proc_pagetable(p)) == 0) // replace old pagetable
     goto bad;
 
   // Load program into memory.
@@ -97,6 +97,10 @@ exec(char *path, char **argv)
   if(copyout(pagetable, sp, (char *)ustack, (argc+1)*sizeof(uint64)) < 0)
     goto bad;
 
+  if(copypages(p->kpagetable, pagetable, 0, sz) != 0){
+    goto bad;
+  }
+  kvminithartwithptbl(p->kpagetable);
   // arguments to user main(argc, argv)
   // argc is returned via the system call return
   // value, which goes in a0.
@@ -116,6 +120,9 @@ exec(char *path, char **argv)
   p->trapframe->sp = sp; // initial stack pointer
   proc_freepagetable(oldpagetable, oldsz);
 
+  // if(p->pid==1){
+  //   vmprint(p->pagetable);
+  // }
   return argc; // this ends up in a0, the first argument to main(argc, argv)
 
  bad:

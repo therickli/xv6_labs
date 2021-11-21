@@ -427,6 +427,7 @@ sys_exec(void)
     if(i >= NELEM(argv)){
       goto bad;
     }
+    // printf("sysexec!!!\n");
     if(fetchaddr(uargv+sizeof(uint64)*i, (uint64*)&uarg) < 0){
       goto bad;
     }

@@ -113,11 +113,22 @@ found:
     return 0;
   }
 
+  // printf("pid:%d\n", p->pid);
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
-  if(p->pagetable == 0){
+  // printf("pagetable:%p\n", p->pagetable);
+  p->kpagetable = prockptinit((uint64)p->trapframe);
+  // printf("kpagetable:%p\n", p->kpagetable);
+
+  if(p->pagetable == 0 || p->kpagetable == 0){
     freeproc(p);
     release(&p->lock);
+    return 0;
+  }
+
+  uint64 va = KSTACK((int) (p - proc));
+  // printf("va:%p\n", va);
+  if(mapkstack(p->kpagetable, va) == 0){
     return 0;
   }
 
@@ -142,6 +153,9 @@ freeproc(struct proc *p)
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
+  if(p->kpagetable)
+    freewalknoleaf(p->kpagetable);
+  p->kpagetable = 0;
   p->sz = 0;
   p->pid = 0;
   p->parent = 0;
@@ -220,6 +234,18 @@ userinit(void)
   // and data into it.
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
+  printf("userinit1\n");
+  if (copypages(p->kpagetable, p->pagetable, 0, sizeof(initcode))!=0)
+    panic("userinit copypages");
+  kvminithartwithptbl(p->kpagetable);
+
+  uint64 va = 0x0;
+  pte_t *pte = walk(p->kpagetable, va, 0);
+  printf("va:%p, pte:%p, pa:%p, *pa:%p\n", va, pte, PTE2PA(*pte), *(uint64 *)PTE2PA(*pte));
+  uint64 pa = 0x87f29000;
+  printf("*pa:%p\n", *(uint64 *)pa);
+
+  printf("*va:%p\n", *(uint64 *)va);
 
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
@@ -246,8 +272,15 @@ growproc(int n)
     if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
       return -1;
     }
+    if(copypages(p->kpagetable, p->pagetable, sz-n, n)!=0){
+      return -1;
+    }
   } else if(n < 0){
     sz = uvmdealloc(p->pagetable, sz, sz + n);
+    if(copypages(p->kpagetable, p->pagetable, sz, -n)!=0){
+      return -1;
+    }
+    kvminithartwithptbl(p->kpagetable);
   }
   p->sz = sz;
   return 0;
@@ -273,6 +306,8 @@ fork(void)
     release(&np->lock);
     return -1;
   }
+  if (copypages(np->kpagetable, np->pagetable, 0, p->sz) != 0)
+    return -1;
   np->sz = p->sz;
 
   np->parent = p;
@@ -473,6 +508,9 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+        kvminithartwithptbl(p->kpagetable);
+        // printf("scheduler1 pid:%d cpuid:%d\n", p->pid, cpuid());
+
         swtch(&c->context, &p->context);
 
         // Process is done running for now.
@@ -485,6 +523,7 @@ scheduler(void)
     }
 #if !defined (LAB_FS)
     if(found == 0) {
+      kvminithart();
       intr_on();
       asm volatile("wfi");
     }
@@ -662,6 +701,7 @@ either_copyin(void *dst, int user_src, uint64 src, uint64 len)
 {
   struct proc *p = myproc();
   if(user_src){
+    // printf("either_copyin!!!\n");
     return copyin(p->pagetable, dst, src, len);
   } else {
     memmove(dst, (char*)src, len);
