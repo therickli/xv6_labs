@@ -78,6 +78,41 @@ struct trapframe {
   /* 264 */ uint64 t4;
   /* 272 */ uint64 t5;
   /* 280 */ uint64 t6;
+
+  /*   8 */ uint64 bakkernel_sp;     // top of process's kernel stack
+  /*  24 */ uint64 bakepc;           // saved user program counter
+  /*  32 */ uint64 bakkernel_hartid; // saved kernel tp
+  /*  40 */ uint64 bakra;
+  /*  48 */ uint64 baksp;
+  /*  56 */ uint64 bakgp;
+  /*  64 */ uint64 baktp;
+  /*  72 */ uint64 bakt0;
+  /*  80 */ uint64 bakt1;
+  /*  88 */ uint64 bakt2;
+  /*  96 */ uint64 baks0;
+  /* 104 */ uint64 baks1;
+  /* 112 */ uint64 baka0;
+  /* 120 */ uint64 baka1;
+  /* 128 */ uint64 baka2;
+  /* 136 */ uint64 baka3;
+  /* 144 */ uint64 baka4;
+  /* 152 */ uint64 baka5;
+  /* 160 */ uint64 baka6;
+  /* 168 */ uint64 baka7;
+  /* 176 */ uint64 baks2;
+  /* 184 */ uint64 baks3;
+  /* 192 */ uint64 baks4;
+  /* 200 */ uint64 baks5;
+  /* 208 */ uint64 baks6;
+  /* 216 */ uint64 baks7;
+  /* 224 */ uint64 baks8;
+  /* 232 */ uint64 baks9;
+  /* 240 */ uint64 baks10;
+  /* 248 */ uint64 baks11;
+  /* 256 */ uint64 bakt3;
+  /* 264 */ uint64 bakt4;
+  /* 272 */ uint64 bakt5;
+  /* 280 */ uint64 bakt6;
 };
 
 enum procstate { UNUSED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
@@ -93,6 +128,8 @@ struct proc {
   int killed;                  // If non-zero, have been killed
   int xstate;                  // Exit status to be returned to parent's wait
   int pid;                     // Process ID
+  int passedticks;
+  int inproc;
 
   // these are private to the process, so p->lock need not be held.
   uint64 kstack;               // Virtual address of kernel stack
@@ -103,4 +140,6 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  int nticks;
+  uint64 retaddr;
 };
