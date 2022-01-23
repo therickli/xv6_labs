@@ -29,6 +29,25 @@ trapinithart(void)
   w_stvec((uint64)kernelvec);
 }
 
+uint64
+lazyalloc(struct proc *p, uint64 va)
+{
+  if (va >= p->sz || va < p->trapframe->sp){
+    return 0;
+  }
+  va = PGROUNDDOWN(va);
+  void *mem = kalloc();
+  if (mem == 0) {
+    return 0;
+  }
+  memset(mem, 0, PGSIZE);
+  if (mappages(p->pagetable, va, PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R|PTE_U) != 0) {
+    kfree(mem);
+    return 0;
+  }
+  return (uint64)mem;
+}
+
 //
 // handle an interrupt, exception, or system call from user space.
 // called from trampoline.S
@@ -67,6 +86,12 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  } else if(r_scause() == 13 || r_scause() == 15) {
+    uint64 va = r_stval();     // p->trapframe->epc not plus 4
+    if (lazyalloc(p, va) == 0) {
+      // printf("lazyalloc error!\n");
+      p->killed = 1;
+    }
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
