@@ -368,13 +368,14 @@ int cowcopy(pte_t *pte)
       *pte = (*pte & ~PTE_COW) | PTE_W;
       release(&refnumlock);
     } else {
-      refnum[PA2REFNUM(pa)]--;
-      release(&refnumlock);
       if((mem = kalloc()) == 0) {
+        release(&refnumlock);
         return -1;
       }
       memmove(mem, (char*)pa, PGSIZE);
       *pte = ((PA2PTE(mem) | PTE_FLAGS(*pte)) & (~PTE_COW)) | PTE_W;
+      refnum[PA2REFNUM(pa)]--;
+      release(&refnumlock);
     }
   } else {
     printf("cow not set!!! flags:%d\n", PTE_FLAGS(*pte));
