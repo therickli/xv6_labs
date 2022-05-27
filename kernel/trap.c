@@ -73,6 +73,10 @@ usertrap(void)
     // ok
   } else if (r_scause() == 15) {
     uint64 va = r_stval();
+    if (va >= MAXVA) {
+      p->killed = 1;
+      goto ERR;
+    }
     pte_t *pte;
     char *mem;
     if ((pte = walk(p->pagetable, va, 0)) == 0) {
@@ -89,6 +93,7 @@ usertrap(void)
         release(&refnumlock);
         if((mem = kalloc()) == 0) {
           p->killed = 1;
+          goto ERR;
         }
         memmove(mem, (char*)pa, PGSIZE);
         *pte = ((PA2PTE(mem) | PTE_FLAGS(*pte)) & (~PTE_COW)) | PTE_W;
@@ -103,6 +108,7 @@ usertrap(void)
     p->killed = 1;
   }
 
+ERR:
   if(p->killed)
     exit(-1);
 
