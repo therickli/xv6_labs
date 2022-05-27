@@ -9,6 +9,8 @@
 #include "riscv.h"
 #include "defs.h"
 
+int refnum[PHYSTOP>>PGSHIFT];
+struct spinlock refnumlock;
 void freerange(void *pa_start, void *pa_end);
 
 extern char end[]; // first address after kernel.
@@ -27,6 +29,7 @@ void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
+  initlock(&refnumlock, "refnum");
   freerange(end, (void*)PHYSTOP);
 }
 
@@ -35,8 +38,10 @@ freerange(void *pa_start, void *pa_end)
 {
   char *p;
   p = (char*)PGROUNDUP((uint64)pa_start);
-  for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
+  for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE){
+    refnum[PA2REFNUM(p)] = 1;
     kfree(p);
+  }
 }
 
 // Free the page of physical memory pointed at by v,
@@ -46,6 +51,17 @@ freerange(void *pa_start, void *pa_end)
 void
 kfree(void *pa)
 {
+  acquire(&refnumlock);
+  if (refnum[PA2REFNUM(pa)] < 1) {
+    printf("kfree error! refnum=%d pa=%p", refnum[PA2REFNUM(pa)], pa);
+    panic("kfree");
+  }
+  if (refnum[PA2REFNUM(pa)]>1) {
+    refnum[PA2REFNUM(pa)]--;
+    release(&refnumlock);
+    return;
+  }
+  release(&refnumlock);
   struct run *r;
 
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
@@ -76,7 +92,9 @@ kalloc(void)
     kmem.freelist = r->next;
   release(&kmem.lock);
 
-  if(r)
+  if(r) {
     memset((char*)r, 5, PGSIZE); // fill with junk
+    refnum[PA2REFNUM(r)] = 1;
+  }
   return (void*)r;
 }

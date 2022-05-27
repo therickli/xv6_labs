@@ -6,6 +6,9 @@
 #include "proc.h"
 #include "defs.h"
 
+extern int refnum[];
+extern struct spinlock refnumlock;
+
 struct spinlock tickslock;
 uint ticks;
 
@@ -29,6 +32,7 @@ trapinithart(void)
   w_stvec((uint64)kernelvec);
 }
 
+pte_t *walk(pagetable_t pagetable, uint64 va, int alloc);
 //
 // handle an interrupt, exception, or system call from user space.
 // called from trampoline.S
@@ -67,6 +71,32 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  } else if (r_scause() == 15) {
+    uint64 va = r_stval();
+    pte_t *pte;
+    char *mem;
+    if ((pte = walk(p->pagetable, va, 0)) == 0) {
+      panic("cow get pte error");
+    }
+    if ((*pte & PTE_COW)&&(*pte & PTE_U)&&(*pte & PTE_V)) {
+      uint64 pa = PTE2PA(*pte);
+      acquire(&refnumlock);
+      if(refnum[PA2REFNUM(pa)] == 1) {
+        *pte = (*pte & ~PTE_COW) | PTE_W;
+        release(&refnumlock);
+      } else {
+        refnum[PA2REFNUM(pa)]--;
+        release(&refnumlock);
+        if((mem = kalloc()) == 0) {
+          p->killed = 1;
+        }
+        memmove(mem, (char*)pa, PGSIZE);
+        *pte = ((PA2PTE(mem) | PTE_FLAGS(*pte)) & (~PTE_COW)) | PTE_W;
+      }
+    } else {
+      printf("cow not set!!! flags:%d\n", PTE_FLAGS(*pte));
+      p->killed=1;
+    }
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
