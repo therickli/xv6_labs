@@ -161,8 +161,8 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   for(;;){
     if((pte = walk(pagetable, a, 1)) == 0)
       return -1;
-    if(*pte & PTE_V)
-      panic("remap");
+    // if(*pte & PTE_V)
+    //   panic("remap");
     *pte = PA2PTE(pa) | perm | PTE_V;
     if(a == last)
       break;
@@ -187,8 +187,11 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
     if((pte = walk(pagetable, a, 0)) == 0)
       panic("uvmunmap: walk");
-    if((*pte & PTE_V) == 0)
+    if((*pte & PTE_V) == 0){
+      backtrace();
+      printf("wrong pte: %p\n", *pte);
       panic("uvmunmap: not mapped");
+    }
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
     if(do_free){
@@ -354,6 +357,33 @@ uvmclear(pagetable_t pagetable, uint64 va)
   *pte &= ~PTE_U;
 }
 
+int cowcopy(pte_t *pte)
+{
+  char *mem;
+
+  if ((*pte & PTE_COW)) {
+    uint64 pa = PTE2PA(*pte);
+    acquire(&refnumlock);
+    if(refnum[PA2REFNUM(pa)] == 1) {
+      *pte = (*pte & ~PTE_COW) | PTE_W;
+      release(&refnumlock);
+    } else {
+      refnum[PA2REFNUM(pa)]--;
+      release(&refnumlock);
+      if((mem = kalloc()) == 0) {
+        return -1;
+      }
+      memmove(mem, (char*)pa, PGSIZE);
+      *pte = ((PA2PTE(mem) | PTE_FLAGS(*pte)) & (~PTE_COW)) | PTE_W;
+    }
+  } else {
+    printf("cow not set!!! flags:%d\n", PTE_FLAGS(*pte));
+    return -1;
+  }
+
+  return 0;
+}
+
 // Copy from kernel to user.
 // Copy len bytes from src to virtual address dstva in a given page table.
 // Return 0 on success, -1 on error.
@@ -361,7 +391,6 @@ int
 copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
   uint64 n, va0, pa0;
-  char *mem;
   pte_t* pte;
 
   // while(len > 0){
@@ -378,7 +407,6 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
   //   src += n;
   //   dstva = va0 + PGSIZE;
   // }
-  struct proc *p = myproc();
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
     if (va0 >= MAXVA) {
@@ -389,22 +417,18 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
       return -1;
     if ((*pte & PTE_V) == 0 || (*pte & PTE_U) == 0)
       return -1;
-    pa0 = PTE2PA(*pte);
+    // pa0 = PTE2PA(*pte);
+    // if(pa0 == 0) {
+    //   return -1;
+    // }
     if (*pte & PTE_COW) {
-      acquire(&refnumlock);
-      if(refnum[PA2REFNUM(pa0)] == 1) {
-        *pte = (*pte & ~PTE_COW) | PTE_W;
-      } else {
-        if((mem = kalloc()) == 0) {
-          p->killed = 1;
-        } else {
-          refnum[PA2REFNUM(pa0)]--;
-          memmove(mem, (char*)pa0, PGSIZE);
-          *pte = ((PA2PTE(mem) | PTE_FLAGS(*pte)) & (~PTE_COW)) | PTE_W;
-          pa0 = (uint64)mem;
-        }
+      if (cowcopy(pte)!=0) {
+        return -1;
       }
-      release(&refnumlock);
+    }
+    pa0 = walkaddr(pagetable, va0);
+    if(pa0 == 0) {
+      return -1;
     }
     n = PGSIZE - (dstva - va0);
     if(n > len)
